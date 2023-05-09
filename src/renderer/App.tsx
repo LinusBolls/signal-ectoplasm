@@ -31,7 +31,7 @@ Chart.register(
 
 function ConversationsOverview() {
 
-  const { isLoading: isLoadingConversations, data: conversationsRes} = useIpcQuery("GET_DASHBOARD_DATA")
+  const { isLoading: isLoadingConversations, data: conversationsRes } = useIpcQuery("GET_DASHBOARD_DATA")
 
   const chartRef = useRef<ChartJSOrUndefined<"bar", number[], string>>(null);
 
