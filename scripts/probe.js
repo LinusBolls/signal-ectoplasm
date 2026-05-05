@@ -192,6 +192,55 @@ async function main() {
     log(r.ok ? `PASS ${label} → count=${r.count}` : `FAIL ${label} → ${r.error}`);
   }
 
+  // If all strategies failed on `messages` query but at least one got past
+  // SQLITE_NOTADB, the cipher key is correct and the failure is in schema
+  // parsing. Confirm by trying to list tables via sqlite_master with
+  // writable_schema = 1 (which suppresses DDL validation on read).
+  const cipherWorks = results.some(
+    (r) =>
+      !r.ok && /malformed database schema|near ['"][^'"]/.test(r.error || '')
+  );
+  if (cipherWorks) {
+    log('');
+    log('cipher appears to work; confirming via sqlite_master listing...');
+    const sqlcipher = require('@journeyapps/sqlcipher').verbose();
+    const url = `file:${DB_PATH}?mode=ro`;
+    const db = new sqlcipher.Database(
+      url,
+      sqlcipher.OPEN_READONLY | sqlcipher.OPEN_URI
+    );
+    await new Promise((resolve) => {
+      db.serialize(() => {
+        db.run('PRAGMA cipher_compatibility = 4');
+        db.run(`PRAGMA key = "x'${decAscii}'"`);
+        db.run('PRAGMA writable_schema = 1');
+        db.all(
+          "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name LIMIT 200",
+          (err, rows) => {
+            if (err) {
+              log(`sqlite_master listing FAILED: ${err.message}`);
+            } else {
+              log(`sqlite_master rows: ${rows.length}`);
+              const byType = rows.reduce((acc, r) => {
+                acc[r.type] = (acc[r.type] || 0) + 1;
+                return acc;
+              }, {});
+              log('  by type:', byType);
+              log(
+                '  first few:',
+                rows
+                  .slice(0, 12)
+                  .map((r) => `${r.type}:${r.name}`)
+                  .join(', ')
+              );
+            }
+            db.close(() => resolve());
+          }
+        );
+      });
+    });
+  }
+
   const winners = results.filter((r) => r.ok);
   log('');
   log(`summary: ${winners.length}/${results.length} strategies succeeded`);

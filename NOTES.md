@@ -50,3 +50,20 @@ Format:
 **Next:** Confirm by querying `sqlite_master` directly (skipping table-schema parsing). If that works, the next problem is replacing `@journeyapps/sqlcipher` with a modern binding. Strong candidate: `@signalapp/better-sqlite3` (Signal's own fork — guaranteed schema-compat).
 
 **Commit:** TBD (after sqlite_master probe).
+
+---
+
+## 2026-05-05 13:05 — Iteration 2: confirm via sqlite_master
+
+**Hypothesis:** If the cipher really works and only DDL parsing fails, listing `sqlite_master` (with `PRAGMA writable_schema = 1` to suppress validation) should succeed and reveal a real Signal schema.
+
+**Change:** Extended `probe.js` to fall through to a `sqlite_master` listing whenever any strategy yielded `SQLITE_CORRUPT: malformed database schema`.
+
+**Result:** PASS.
+- 159 rows: 54 tables, 94 indexes, 11 triggers.
+- First-seen names: `attachment_backup_jobs_*`, `attachment_downloads_*`, `callLinks_*`, `callsHistory_*` — unmistakably Signal Desktop's current schema.
+- So: keychain → OSCrypt v10 → 64-char hex key → `PRAGMA cipher_compatibility = 4` + `PRAGMA key = "x'<hex>'"` is the **correct** decryption path. The previous fix attempt was right about the key; what's broken is the bundled SQLite parser, not the cipher.
+
+**Implication confirmed:** Replace `@journeyapps/sqlcipher` (last release 2022; bundles SQLite ~3.39) with a binding whose SQLite version is recent enough to parse Signal's modern DDL (likely uses `->>`, generated columns, or `STRICT` tables).
+
+**Next:** Iteration 3 — pick a replacement binding. Strong candidate: `@signalapp/better-sqlite3` (Signal's own fork — guaranteed schema-compat; bundled SQLite tracks Signal's needs; SQLCipher 4 enabled).
