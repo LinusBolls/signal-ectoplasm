@@ -28,3 +28,25 @@ Format:
 4. Recent Signal added a second-layer wrap of the SQLCipher key inside the OSCrypt-decrypted payload (e.g. JSON envelope or HMAC).
 
 **Plan:** start with hypothesis 3 (probe) to establish ground truth on what the keychain-decrypted key actually is, then walk through 1, 2, 4 with cipher param sweeps.
+
+---
+
+## 2026-05-05 12:50 — Iteration 1: probe baseline
+
+**Hypothesis:** Establish ground truth — does keychain decryption produce a sane key, and which (if any) SQLCipher param combination opens the db.
+
+**Change:** Ran `node scripts/probe.js` — 6 strategies (cipher_compatibility ∈ {3,4} × key encoding ∈ {raw_hex, ascii_hex_text, ascii_passphrase}).
+
+**Result:** Big finding.
+- Keychain readable, password length 24.
+- OSCrypt v10 decryption produced **64 printable-ASCII characters that are valid hex** → 32-byte (256-bit) key, exactly what SQLCipher 4 expects.
+- Five strategies failed with `SQLITE_NOTADB: file is not a database` (= wrong key / wrong cipher init).
+- **One strategy got past the cipher entirely:** `compat=4 key=ascii_hex_text(len=64)` — i.e. `PRAGMA key = "x'<the 64-char hex>'"`. It failed only when parsing the schema with `SQLITE_CORRUPT: malformed database schema (messages) - near ">": syntax error`.
+
+**Implication:** The SQLCipher key is **correct**. The cipher header decoded; we got into actual SQL parsing. The "near '>'" parse error means Signal's current `messages` table DDL contains syntax (probably JSON operators `->` / `->>`, generated columns, or `STRICT`) that the SQLite version bundled inside `@journeyapps/sqlcipher` (last published 2022) cannot parse.
+
+**So the previous fix attempt was on the right track for the key; what broke is the bundled SQLite parser, not the encryption.**
+
+**Next:** Confirm by querying `sqlite_master` directly (skipping table-schema parsing). If that works, the next problem is replacing `@journeyapps/sqlcipher` with a modern binding. Strong candidate: `@signalapp/better-sqlite3` (Signal's own fork — guaranteed schema-compat).
+
+**Commit:** TBD (after sqlite_master probe).
