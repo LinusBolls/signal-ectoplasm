@@ -215,7 +215,7 @@ async function main() {
         db.run(`PRAGMA key = "x'${decAscii}'"`);
         db.run('PRAGMA writable_schema = 1');
         db.all(
-          "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name LIMIT 200",
+          "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name LIMIT 200",
           (err, rows) => {
             if (err) {
               log(`sqlite_master listing FAILED: ${err.message}`);
@@ -233,6 +233,30 @@ async function main() {
                   .map((r) => `${r.type}:${r.name}`)
                   .join(', ')
               );
+
+              // Show the messages-table DDL specifically — that's the one
+              // whose parse fails, so its DDL tells us which SQLite features
+              // we need.
+              const msg = rows.find(
+                (r) => r.type === 'table' && r.name === 'messages'
+              );
+              if (msg && msg.sql) {
+                log('');
+                log('messages table DDL:');
+                log(msg.sql);
+                log('');
+                // Heuristic: scan for syntax that requires modern SQLite.
+                const features = {
+                  'json arrow ->>': /->>/.test(msg.sql),
+                  'json arrow ->': /->[^>]/.test(msg.sql),
+                  'GENERATED ALWAYS': /GENERATED\s+ALWAYS/i.test(msg.sql),
+                  STRICT: /\bSTRICT\b/i.test(msg.sql),
+                  'WITHOUT ROWID': /WITHOUT\s+ROWID/i.test(msg.sql),
+                };
+                log('detected features:', features);
+              } else {
+                log('no `messages` table found in sqlite_master');
+              }
             }
             db.close(() => resolve());
           }

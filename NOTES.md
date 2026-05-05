@@ -67,3 +67,32 @@ Format:
 **Implication confirmed:** Replace `@journeyapps/sqlcipher` (last release 2022; bundles SQLite ~3.39) with a binding whose SQLite version is recent enough to parse Signal's modern DDL (likely uses `->>`, generated columns, or `STRICT` tables).
 
 **Next:** Iteration 3 — pick a replacement binding. Strong candidate: `@signalapp/better-sqlite3` (Signal's own fork — guaranteed schema-compat; bundled SQLite tracks Signal's needs; SQLCipher 4 enabled).
+
+---
+
+## 2026-05-05 13:25 — Iteration 3: identify blocking SQL features and pick binding
+
+**Hypothesis:** `@journeyapps/sqlcipher` v6.0.0 (latest, Apr 2026) might have a newer bundled SQLite that just works.
+
+**Investigation:**
+- `@journeyapps/sqlcipher` changelog: SQLite was last bumped in v5.1.0 (~2020) to **3.33.0**. v6.0.0 only drops Windows + simplifies build. **Still SQLite 3.33.0.** JSON arrow operators `->`/`->>` need 3.38+. So v6 doesn't help.
+- Extended `probe.js` to dump the `messages` DDL via `sqlite_master`. Detected features:
+  - `json->'poll'->>'question'` → arrow operators (3.38.0+)
+  - `GENERATED ALWAYS AS (...) VIRTUAL` (3.31.0+ — fine)
+  - `json_extract`, `json_array_length` (JSON1 — fine)
+  - No STRICT, no WITHOUT ROWID
+- **Only the arrow operators are problematic.** This is vanilla SQLite functionality — no Signal-specific functions appear in the DDL.
+
+**Candidates compared:**
+
+| Binding | SQLite | API | Install | SQLCipher mode |
+|---|---|---|---|---|
+| `@journeyapps/sqlcipher` v6 | 3.33.0 | async (node-sqlite3 style) | source build | native SQLCipher 4 |
+| `@signalapp/better-sqlite3` v9.0.13 | bundles 4.6.1-signal-patch2 | sync (better-sqlite3 style) | downloads from Signal CDN + Rust extension | native SQLCipher 4 |
+| `better-sqlite3-multiple-ciphers` v12.9.0 | ~3.49 | sync (better-sqlite3 style) | prebuilt binaries | `legacy=4` (SQLCipher 4 compatible) |
+
+**Decision:** `better-sqlite3-multiple-ciphers`. Simplest install (prebuilt binaries, no Signal CDN, no Rust toolchain), modern SQLite, generic SQLCipher 4 compat. The `messages` DDL doesn't reference any Signal-specific function, so a generic binding should be sufficient. If we hit a runtime issue with extension-defined functions later, we can fall back to `@signalapp/better-sqlite3`.
+
+Note: switch from async to sync API will require restructuring `SignalHistoryClient` (drop the `_dbAll` callback wrappers, the connection-retry-on-NOTADB loop becomes a simple try/catch). Manageable.
+
+**Next:** Iteration 4 — install `better-sqlite3-multiple-ciphers`, write a v2 probe path that uses it with `PRAGMA legacy = 4` + `PRAGMA key = "x'<hex>'"`, run `SELECT count(*) FROM messages` for real.
