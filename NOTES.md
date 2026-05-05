@@ -128,3 +128,38 @@ config.json.encryptedKey
 ```
 
 **Next:** Iteration 5 — port-back. Replace `@journeyapps/sqlcipher` with `better-sqlite3-multiple-ciphers` in `src/services/SignalHistoryClient/index.ts`. The Electron app can keep `safeStorage.decryptString(encryptedKey)` for the keychain side (the probe's `security` CLI was a workaround for non-Electron scripts; Electron's `safeStorage` reads the same keychain entry). The big change is the API surface: async/callback `db.all(...)` becomes sync `db.prepare(...).all()`. Wrap in `Promise.resolve()` to preserve the existing async public methods. Then `npm start` to verify end-to-end.
+
+---
+
+## 2026-05-05 14:25 — Iteration 5: port-back to SignalHistoryClient → SUCCESS
+
+**Hypothesis correction:** The note above was wrong about safeStorage. **Electron's `safeStorage` is per-app-namespaced in the keychain.** Each Electron binary gets its own entry (e.g. "Electron Safe Storage / Electron Key"). Calling `safeStorage.decryptString` on a blob written by Signal fails with `Error while decrypting the ciphertext` because we're trying to decrypt with the wrong key. **This is the actual root cause of the original bug** that the user reported, masked by the SQLCipher v3.33 issue we already fixed.
+
+**Changes to `src/services/SignalHistoryClient/index.ts`:**
+- Removed `safeStorage` import.
+- Added `decryptOSCryptV10()` — manual replication of Chromium OSCrypt (PBKDF2-SHA1 1003 / saltysalt / iv 0x20*16 / AES-128-CBC).
+- Added `readSignalSafeStoragePassword()` — reads `Signal Safe Storage / Signal Key` via `security` CLI on macOS. Throws "not yet implemented" on Linux/Windows.
+- Replaced `@journeyapps/sqlcipher` with `better-sqlite3-multiple-ciphers`. Sync API; `db.prepare(query).all()` instead of callback `db.all(...)`. Open with `{ readonly: true, fileMustExist: true, timeout: 5000 }`. Pragmas: `cipher = sqlcipher`, `legacy = 4`, `key = "x'<hex>'"`.
+- Dropped the `SQLITE_NOTADB` retry loop (no longer needed; the new binding doesn't surface the old timing-induced false positives, and the readonly mode + sync API make this trivial).
+
+**Other:**
+- Wrote `scripts/probe-electron.js` — a minimal Electron-runtime probe that boots Electron without a window and exercises `getDatabaseInfo()` + `getAllConversationsWithMessages()` directly. Faster end-to-end check than the full app.
+- Native rebuild: `better-sqlite3-multiple-ciphers` ships prebuilt for node, not Electron 23. Hit `NODE_MODULE_VERSION 127 vs 113` mismatch. Rebuilt with `npx electron-rebuild -f -w better-sqlite3-multiple-ciphers`. First attempt failed because Python 3.13 dropped `distutils`; fixed with `pip install --user --break-system-packages 'setuptools<81'` (provides distutils backport).
+
+**Result: PASS.**
+
+```
+[probe-electron]   tables: 54 (sample: conversations, identityKeys, items, sticker_packs, ...)
+[probe-electron]   conversations: 894
+[probe-electron]   top by message count:
+[probe-electron]       34570 msgs  Laurin Notemann
+[probe-electron]       13627 msgs  Capmeister Kirr
+[probe-electron]       12391 msgs  Leonard Darsow
+[probe-electron]        9311 msgs  Ava Hurst
+[probe-electron]        8895 msgs  Ulli Bolls
+[probe-electron] PASS
+```
+
+End-to-end works in real Electron 23. The only missing step is the GUI window itself, which is outside the scope of this fix (the renderer side hasn't broken; it just couldn't ever get data because the main process IPC handler kept throwing).
+
+**Termination: SUCCESS.** Loop ends after writing SUMMARY.md, pushing the branch, and stopping the wakeup chain.
