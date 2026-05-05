@@ -96,3 +96,35 @@ Format:
 Note: switch from async to sync API will require restructuring `SignalHistoryClient` (drop the `_dbAll` callback wrappers, the connection-retry-on-NOTADB loop becomes a simple try/catch). Manageable.
 
 **Next:** Iteration 4 — install `better-sqlite3-multiple-ciphers`, write a v2 probe path that uses it with `PRAGMA legacy = 4` + `PRAGMA key = "x'<hex>'"`, run `SELECT count(*) FROM messages` for real.
+
+---
+
+## 2026-05-05 13:50 — Iteration 4: install + v2 probe → SUCCESS
+
+**Hypothesis:** `better-sqlite3-multiple-ciphers` v12.9.0 (modern SQLite ~3.49) with `PRAGMA cipher = sqlcipher; PRAGMA legacy = 4; PRAGMA key = "x'<hex>'"` will parse Signal's `messages` DDL and return real rows.
+
+**Changes:**
+- `package.json`: renamed `devEngines` → `engines` (npm 10's `checkDevEngines` rejected the legacy schema, blocking install).
+- `npm install better-sqlite3-multiple-ciphers --save --legacy-peer-deps` (the project has a pre-existing react peer-dep conflict with `react-loading-spinner@1.0.12` / react@^0.14.0; README also documents `npm install --force`).
+- `scripts/probe.js`: added a v2 path using the new binding.
+
+**Result:** PASS.
+- `SELECT count(*) FROM messages` → **159,495**.
+- 57 tables visible. Read-only mode confirmed (`{ readonly: true }`).
+
+**So the headless probe is fully working.** The decryption path is:
+
+```
+config.json.encryptedKey
+  ↓ Buffer.from(hex)
+  ↓ OSCrypt v10 decrypt (PBKDF2-SHA1 1003 / saltysalt / iv = 0x20*16 / AES-128-CBC)
+    using keychain password from "Signal Safe Storage / Signal Key"
+  ↓ 64-char ASCII hex string (the SQLCipher key)
+  ↓ better-sqlite3-multiple-ciphers
+    PRAGMA cipher = sqlcipher
+    PRAGMA legacy = 4
+    PRAGMA key = "x'<hex>'"
+  ↓ readable database
+```
+
+**Next:** Iteration 5 — port-back. Replace `@journeyapps/sqlcipher` with `better-sqlite3-multiple-ciphers` in `src/services/SignalHistoryClient/index.ts`. The Electron app can keep `safeStorage.decryptString(encryptedKey)` for the keychain side (the probe's `security` CLI was a workaround for non-Electron scripts; Electron's `safeStorage` reads the same keychain entry). The big change is the API surface: async/callback `db.all(...)` becomes sync `db.prepare(...).all()`. Wrap in `Promise.resolve()` to preserve the existing async public methods. Then `npm start` to verify end-to-end.

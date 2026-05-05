@@ -269,6 +269,36 @@ async function main() {
   log('');
   log(`summary: ${winners.length}/${results.length} strategies succeeded`);
 
+  // -----------------------------------------------------------------------
+  // V2: try better-sqlite3-multiple-ciphers (modern SQLite, generic SQLCipher
+  // 4 compat). This is the candidate that should actually parse Signal's
+  // current `messages` DDL.
+  // -----------------------------------------------------------------------
+  log('');
+  log('=== v2: better-sqlite3-multiple-ciphers ===');
+  try {
+    const Database = require('better-sqlite3-multiple-ciphers');
+    const db = new Database(DB_PATH, { readonly: true });
+    db.pragma('cipher = sqlcipher');
+    db.pragma('legacy = 4');
+    db.pragma(`key = "x'${decAscii}'"`);
+    const row = db.prepare('SELECT count(*) AS n FROM messages').get();
+    log(`v2 PASS: messages count = ${row.n}`);
+    // Sanity: a couple more
+    const conv = db
+      .prepare(
+        "SELECT count(*) AS n FROM sqlite_master WHERE type='table'"
+      )
+      .get();
+    log(`v2 sanity: tables = ${conv.n}`);
+    db.close();
+    log('');
+    log('SUCCESS — better-sqlite3-multiple-ciphers reads the messages table.');
+    process.exit(0);
+  } catch (e) {
+    log('v2 FAIL:', e && e.message ? e.message : e);
+  }
+
   if (winners.length === 0) {
     log('none worked. consider:');
     log('  - cipher_compatibility values 1, 2, 5');
