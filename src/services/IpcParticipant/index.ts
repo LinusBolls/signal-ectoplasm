@@ -25,7 +25,7 @@ export interface Message {
             conversationId: string
         }
         main: {
-            err: null
+            err: Error | null
             messages: MessageWithOptions<{
                 includeMemberInfo: true;
                 parseJson: true;
@@ -35,7 +35,7 @@ export interface Message {
     GET_DASHBOARD_DATA: {
         renderer: {}
         main: {
-            err: null
+            err: Error | null
             conversations: Conversation[]
             clientInfo: {
                 deviceName: string

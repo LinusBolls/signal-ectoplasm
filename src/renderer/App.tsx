@@ -46,6 +46,7 @@ function ConversationsOverview() {
    />
 
   const conversations = conversationsRes.conversations
+  const conversationsErr = conversationsRes.err;
 
   const footer = (tooltipItems: any) => {
     const item = tooltipItems[0];
@@ -59,6 +60,21 @@ function ConversationsOverview() {
     (prev, i) => ({ ...prev, [i.name]: i.numMessages }),
     {}
   );
+
+  if (conversationsErr) {
+
+    return <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+
+      color: "white",
+    }}>
+      <h2>Encountered an error</h2>
+      <pre>{conversationsErr.toString()}</pre>
+    </div>
+  }
 
 
   return (

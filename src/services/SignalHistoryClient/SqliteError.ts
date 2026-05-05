@@ -30,13 +30,18 @@ const SqliteError: Record<string, SignalHistoryClientSqliteError> = {
         id: "UNKNOWN",
         message: "Unknown sqlite error",
         mightBeSolvedByRetry: false,
-    }
+    },
+    SQLITE_CORRUPT: {
+        id: "SQLITE_CORRUPT",
+        message: `SQLITE_CORRUPT: malformed database schema (messages_on_insert_insert_mentions) - near ">>": syntax error`,
+        mightBeSolvedByRetry: false,
+    },
 }
 export default SqliteError
 
-export const identifySqliteError = (err: unknown): SignalHistoryClientSqliteError => {
+export const identifySqliteError = (err: Error): SignalHistoryClientSqliteError => {
 
-    const errMessage: string = (err as any).message
+    const errMessage = err.message
 
     const messageMatch = Object.values(SqliteError).filter(i => i.message === errMessage)[0]
 

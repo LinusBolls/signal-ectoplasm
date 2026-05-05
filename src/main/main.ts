@@ -73,7 +73,7 @@ ipcParticipant.respond("GET_DASHBOARD_DATA", async () => {
   // }
 
   return { 
-    err: null,
+    err: conversationsErr,
     conversations: onlyValidConversations,
     clientInfo,
    }
